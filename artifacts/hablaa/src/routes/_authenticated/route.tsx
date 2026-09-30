@@ -1,0 +1,85 @@
+import { createFileRoute, Outlet, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import loadingLlama from "@/assets/habla-llama.png";
+import { supabase } from "@/integrations/supabase/client";
+import { syncFromCloud, scheduleCloudSave, flushCloudSave } from "@/lib/cloud-sync";
+import { useApp } from "@/lib/store";
+
+export const Route = createFileRoute("/_authenticated")({
+  component: AuthGate,
+});
+
+function AuthGate() {
+  const navigate = useNavigate();
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function init(session: { user: { id: string } } | null) {
+      if (!session) {
+        void navigate({ to: "/auth" });
+        return;
+      }
+      // Load state from cloud — never block the app if this fails
+      try {
+        await syncFromCloud(session.user.id);
+      } catch (error) {
+        console.error("Cloud sync failed, continuing with local state", error);
+      }
+      if (cancelled) return;
+      setReady(true);
+
+      // Subscribe to store changes → debounced cloud save
+      const userId = session.user.id;
+      const unsub = useApp.subscribe(() => scheduleCloudSave(userId));
+
+      // Make sure nothing is lost on reload / tab switch
+      const onHide = () => flushCloudSave();
+      window.addEventListener("pagehide", onHide);
+      document.addEventListener("visibilitychange", onHide);
+
+      // Listen for sign-out
+      const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+        if (event === "SIGNED_OUT") {
+          unsub();
+          void navigate({ to: "/auth" });
+        }
+      });
+
+      return () => {
+        unsub();
+        window.removeEventListener("pagehide", onHide);
+        document.removeEventListener("visibilitychange", onHide);
+        authListener.subscription.unsubscribe();
+      };
+    }
+
+    void (async () => {
+      const { data } = await supabase.auth.getSession();
+      const cleanup = await init(data.session as any);
+      if (cancelled) {
+        cleanup?.();
+      }
+      return cleanup;
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
+  if (!ready) {
+    return (
+      <div className="flex min-h-[100dvh] items-center justify-center overflow-hidden bg-background">
+        <img
+          src={loadingLlama}
+          alt="Habla is getting your lessons ready"
+          className="bounce-soft w-[min(60vw,14rem)] object-contain"
+        />
+      </div>
+    );
+  }
+
+  return <Outlet />;
+}

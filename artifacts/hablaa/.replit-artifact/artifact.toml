@@ -1,0 +1,34 @@
+kind = "web"
+previewPath = "/"
+title = "Hablaa"
+description = "A mobile-friendly language-learning app for practicing Spanish through guided lessons, conversation simulations, and speech exercises."
+version = "1.0.0"
+id = "artifacts/hablaa"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25635
+
+[services.development]
+run = "pnpm --filter @workspace/hablaa run dev"
+
+[services.production]
+
+[services.production.build]
+args = ["pnpm", "--filter", "@workspace/hablaa", "run", "build"]
+
+[services.production.build.env]
+NODE_ENV = "production"
+
+[services.production.run]
+args = ["node", "--enable-source-maps", "artifacts/hablaa/serve.mjs"]
+
+[services.production.run.env]
+PORT = "25635"
+NODE_ENV = "production"
+
+[services.env]
+PORT = "25635"
+BASE_PATH = "/"
